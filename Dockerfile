@@ -27,4 +27,4 @@ COPY --from=build /app/migrations /usr/local/etc/auth/migrations/
 ENV GOTRUE_DB_MIGRATIONS_PATH /usr/local/etc/auth/migrations
 
 USER supabase
-CMD ["auth"]
+CMD ["/app/auth"]
