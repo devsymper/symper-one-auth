@@ -5,7 +5,7 @@ metadata:
   labels:
     tier: backend
 data:
-  .env : | 
+  .env: |
     GOTRUE_JWT_SECRET="S5HG49OKLJ2GAkS33V+6lK8/EnnbcYF8eqMKty+TqRQ="
     GOTRUE_JWT_EXP="3600"
     GOTRUE_JWT_AUD="authenticated"
