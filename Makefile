@@ -39,10 +39,10 @@ vendor: ## Create vendor folder with all dependencies.
 	@go mod vendor
 
 migrate_dev: ## Run database migrations for development.
-	hack/migrate.sh postgres
+	hack/migrate.sh symper_one_auth
 
 migrate_test: ## Run database migrations for test.
-	hack/migrate.sh postgres
+	hack/migrate.sh symper_one_auth
 
 test: build ## Run tests.
 	go test $(CHECK_FILES) -coverprofile=coverage.out -coverpkg ./... -p 1 -race -v -count=1

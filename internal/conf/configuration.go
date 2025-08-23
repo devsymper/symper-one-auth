@@ -509,6 +509,7 @@ type SmsProviderConfiguration struct {
 	Template          string             `json:"template"`
 	TestOTP           map[string]string  `json:"test_otp" split_words:"true"`
 	TestOTPValidUntil Time               `json:"test_otp_valid_until" split_words:"true"`
+	DefaultTestOTP    string             `json:"default_test_otp" split_words:"true"`
 	SMSTemplate       *template.Template `json:"-"`
 
 	Twilio       TwilioProviderConfiguration       `json:"twilio"`
@@ -516,12 +517,20 @@ type SmsProviderConfiguration struct {
 	Messagebird  MessagebirdProviderConfiguration  `json:"messagebird"`
 	Textlocal    TextlocalProviderConfiguration    `json:"textlocal"`
 	Vonage       VonageProviderConfiguration       `json:"vonage"`
+	Tingting     TingtingProviderConfiguration     `json:"tingting"`
 }
 
 func (c *SmsProviderConfiguration) GetTestOTP(phone string, now time.Time) (string, bool) {
 	if c.TestOTP != nil && (c.TestOTPValidUntil.Time.IsZero() || now.Before(c.TestOTPValidUntil.Time)) {
 		testOTP, ok := c.TestOTP[phone]
-		return testOTP, ok
+		if ok {
+			return testOTP, true
+		}
+	}
+
+	// If no specific test OTP is found for the phone number, use the default test OTP
+	if c.DefaultTestOTP != "" && (c.TestOTPValidUntil.Time.IsZero() || now.Before(c.TestOTPValidUntil.Time)) {
+		return c.DefaultTestOTP, true
 	}
 
 	return "", false
@@ -554,6 +563,12 @@ type VonageProviderConfiguration struct {
 	ApiKey    string `json:"api_key" split_words:"true"`
 	ApiSecret string `json:"api_secret" split_words:"true"`
 	From      string `json:"from" split_words:"true"`
+}
+
+type TingtingProviderConfiguration struct {
+	ApiKey  string `json:"api_key" split_words:"true"`
+	Sender  string `json:"sender" split_words:"true"`
+	BaseURL string `json:"base_url" split_words:"true"`
 }
 
 type CaptchaConfiguration struct {
@@ -1241,6 +1256,16 @@ func (t *VonageProviderConfiguration) Validate() error {
 	}
 	if t.From == "" {
 		return errors.New("missing Vonage 'from' parameter")
+	}
+	return nil
+}
+
+func (t *TingtingProviderConfiguration) Validate() error {
+	if t.ApiKey == "" {
+		return errors.New("missing Tingting API key")
+	}
+	if t.Sender == "" {
+		return errors.New("missing Tingting sender")
 	}
 	return nil
 }
