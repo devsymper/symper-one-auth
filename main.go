@@ -3,10 +3,7 @@ package main
 import (
 	"context"
 	"embed"
-	"fmt"
-	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -24,10 +21,6 @@ func init() {
 }
 
 func main() {
-	for _, env := range os.Environ() {
-		pair := strings.SplitN(env, "=", 2)
-		fmt.Printf("ENV - Key: %s, Value: %s\n", pair[0], pair[1])
-	}
 	cmd.EmbeddedMigrations = embeddedMigrations
 
 	execCtx, execCancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)
