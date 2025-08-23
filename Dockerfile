@@ -22,9 +22,7 @@ FROM alpine:3
 RUN adduser -D -u 1000 supabase
 
 RUN apk add --no-cache ca-certificates
-COPY --from=build /app/auth /usr/local/bin/auth
 COPY --from=build /app/migrations /usr/local/etc/auth/migrations/
-RUN ln -s /usr/local/bin/auth /usr/local/bin/gotrue
 
 ENV GOTRUE_DB_MIGRATIONS_PATH /usr/local/etc/auth/migrations
 
