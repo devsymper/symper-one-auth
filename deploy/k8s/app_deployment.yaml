@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {APP_NAME}-{TARGET_ROLE}
+  labels:
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {APP_NAME}
+      tier: backend
+      role: {TARGET_ROLE}
+  template:
+    metadata:
+      labels:
+        app: {APP_NAME}
+        tier: backend
+        role: {TARGET_ROLE}
+    spec:
+      securityContext:
+        runAsNonRoot: false
+      imagePullSecrets:
+        - name: regcred
+      serviceAccountName: symper
+      containers:
+        - name: {APP_NAME}
+          ports:
+            - containerPort: 9999
+          image: registry.symper.vn/{SYMPER_IMAGE}
+          resources:
+            requests:
+              memory: "50Mi"
+              cpu: "50m"
+            limits:
+              memory: "1000Mi"
+              cpu: "500m"
+          env:
+            - name: TZ
+              value: Asia/Ho_Chi_Minh
+          volumeMounts:
+            - name: config-env
+              mountPath: /src
+            - name: authorization-key
+              mountPath: /src/deploy/crypt
+              readOnly: true
+            - name: files-volume
+              mountPath: /src/files
+            - name: files-log-volume
+              mountPath: /src/log
+      volumes:
+        - name: files-volume
+          hostPath:
+            path: "/home/data-io/files"
+            type: DirectoryOrCreate
+        - name: files-log-volume
+          hostPath:
+            path: "/home/data-io/log"
+            type: DirectoryOrCreate
+        - name: config-env
+          configMap:
+            name: app-config-{APP_NAME}
+        - name: authorization-key
+          projected:
+            sources:
+              - secret:
+                  name: authorization-public-key
