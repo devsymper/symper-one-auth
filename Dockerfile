@@ -26,9 +26,14 @@ FROM alpine:3
 RUN adduser -D -u 1000 supabase
 
 RUN apk add --no-cache ca-certificates
+
+# Create /app and /src directories with proper permissions for supabase user
+RUN mkdir -p /app /src && chown -R supabase:supabase /app /src
 COPY --from=build /app/migrations /usr/local/etc/auth/migrations/
 COPY --from=build /app/auth /usr/local/bin/auth
 RUN ln -s /usr/local/bin/auth /usr/local/bin/gotrue
 
+# Set working directory and switch to non-root user
+WORKDIR /src
 USER supabase
 CMD ["auth"]

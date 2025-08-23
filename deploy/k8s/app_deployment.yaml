@@ -38,9 +38,6 @@ spec:
           env:
             - name: TZ
               value: Asia/Ho_Chi_Minh
-          envFrom:
-            - configMapRef:
-                name: app-config-{APP_NAME}
           volumeMounts:
             - name: config-env
               mountPath: /src
