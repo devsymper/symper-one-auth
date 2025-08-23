@@ -32,7 +32,7 @@ RUN mkdir -p /app /src && chown -R supabase:supabase /app /src
 COPY --from=build /app/migrations /usr/local/etc/auth/migrations/
 COPY --from=build /app/auth /usr/local/bin/auth
 RUN ln -s /usr/local/bin/auth /usr/local/bin/gotrue
-
+EXPOSE 9999
 # Set working directory and switch to non-root user
 WORKDIR /src
 USER supabase
