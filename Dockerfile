@@ -15,7 +15,7 @@ RUN make deps
 COPY . /app
 
 # Make sure you change the RELEASE_VERSION value before publishing an image.
-RUN RELEASE_VERSION=unspecified make build || cat /app/Makefile
+RUN RELEASE_VERSION=unspecified make build && ls -lh /app && ls -lh /app/bin || true
 
 # Always use alpine:3 so the latest version is used. This will keep CA certs more up to date.
 FROM alpine:3
@@ -23,8 +23,12 @@ RUN adduser -D -u 1000 supabase
 
 RUN apk add --no-cache ca-certificates
 COPY --from=build /app/migrations /usr/local/etc/auth/migrations/
+COPY --from=build /app/auth /usr/local/bin/auth
+RUN ln -s /usr/local/bin/auth /usr/local/bin/gotrue
+
+ENV GOTRUE_DB_MIGRATIONS_PATH /usr/local/etc/auth/migrations
 
 ENV GOTRUE_DB_MIGRATIONS_PATH /usr/local/etc/auth/migrations
 
 USER supabase
-CMD ["/app/auth"]
+CMD ["auth"]
