@@ -20,8 +20,8 @@ help: ## Show this help.
 all: vet sec static build ## Run the tests and build the binary.
 
 build: deps ## Build the binary.
-	CGO_ENABLED=0 go build $(FLAGS)
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(FLAGS) -o auth-arm64
+	CGO_ENABLED=0 go build -mod=vendor $(FLAGS)
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -mod=vendor $(FLAGS) -o auth-arm64
 
 dev-deps: ## Install developer dependencies
 	@go install github.com/gobuffalo/pop/soda@latest
@@ -33,6 +33,10 @@ dev-deps: ## Install developer dependencies
 deps: ## Install dependencies.
 	@go mod download
 	@go mod verify
+
+vendor: ## Create vendor folder with all dependencies.
+	@go mod tidy
+	@go mod vendor
 
 migrate_dev: ## Run database migrations for development.
 	hack/migrate.sh postgres
