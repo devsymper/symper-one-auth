@@ -1,11 +1,48 @@
 # Active Context: Symper One Auth
 
 ## Current Project State
-**Status**: Initial project discovery and setup phase  
+**Status**: Active development - Rate limiting enhancements completed  
 **Date**: January 2025  
-**Focus**: Understanding the codebase and establishing development environment
+**Focus**: Enhanced authentication security with comprehensive OTP rate limiting
 
-## Recent Discoveries
+## Recent Changes (January 2025)
+
+### Rate Limiting Enhancements (Advanced Per-Number Implementation)
+- **Per-Number Rate Limiting**: Implemented sophisticated per-phone-number rate limiting instead of global limits
+- **Dual Time Windows**: OTP send limiting with both interval (1 minute) and daily (5 sends) limits
+- **Failed Verification Tracking**: Per-number rate limiting for wrong OTP verification attempts (5 per 5 minutes)
+- **Reset Mechanism**: Failed verification counters reset when OTP resend succeeds
+- **Comprehensive Coverage**: Applied to phone OTP, email OTP, and MFA phone verification failures
+
+### New Configuration Options
+- **`RateLimitOtpVerifyFailed`**: Verification failure rate (default: 5 per time window)
+- **`RateLimitOtpSendInterval`**: Minimum time between OTP sends (default: 1 minute) 
+- **`RateLimitOtpSendDaily`**: Maximum OTP sends per day per number (default: 5)
+
+### Technical Implementation Details
+- **Per-Identifier Limiters**: Created `OTPSendLimiter` and `OTPVerifyFailureLimiter` classes
+- **Thread-Safe Tracking**: Concurrent-safe per-phone-number rate limit tracking
+- **Memory Management**: Automatic cleanup of old rate limit trackers
+- **Fallback Support**: Graceful fallback to global rate limits when per-identifier unavailable
+- **Comprehensive Testing**: Unit tests covering all rate limiting scenarios
+
+### Architecture Improvements
+- **Separation of Concerns**: Distinct rate limiters for send vs verify operations
+- **Scalable Design**: Memory-efficient tracking with automatic cleanup
+- **Configuration Driven**: All limits configurable via environment variables
+- **Error Messages**: User-friendly error messages with specific wait times
+
+### Error Code Separation (January 2025)
+- **Granular Error Codes**: Implemented specific error codes for different OTP failure scenarios
+- **Send Rate Limiting Errors**: Separate codes for interval vs daily rate limiting
+- **Verification Errors**: Distinct codes for OTP code mismatch vs expiry
+- **Improved UX**: More specific error messages help users understand exact failure reason
+
+### New Error Codes Added
+- **`otp_send_interval_rate_limit`**: When user tries to send OTP too soon (within interval)
+- **`otp_send_daily_rate_limit`**: When user has exceeded daily OTP send limit
+- **`otp_code_mismatch`**: When OTP verification fails due to wrong code
+- **`otp_expired`**: When OTP verification fails due to expiry (existing, but now used specifically)
 
 ### Project Identity
 - This is **Supabase Auth**, a production-ready authentication microservice

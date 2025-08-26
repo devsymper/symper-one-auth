@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -47,32 +48,44 @@ func (a *API) sendPhoneConfirmation(r *http.Request, tx *storage.Connection, use
 	config := a.config
 
 	var token *string
-	var sentAt *time.Time
+	// var sentAt *time.Time
 
 	includeFields := []string{}
 	switch otpType {
 	case phoneChangeVerification:
 		token = &user.PhoneChangeToken
-		sentAt = user.PhoneChangeSentAt
+		// sentAt = user.PhoneChangeSentAt
 		user.PhoneChange = phone
 		includeFields = append(includeFields, "phone_change", "phone_change_token", "phone_change_sent_at")
 	case phoneConfirmationOtp:
 		token = &user.ConfirmationToken
-		sentAt = user.ConfirmationSentAt
+		// sentAt = user.ConfirmationSentAt
 		includeFields = append(includeFields, "confirmation_token", "confirmation_sent_at")
 	case phoneReauthenticationOtp:
 		token = &user.ReauthenticationToken
-		sentAt = user.ReauthenticationSentAt
+		// sentAt = user.ReauthenticationSentAt
 		includeFields = append(includeFields, "reauthentication_token", "reauthentication_sent_at")
 	default:
 		return "", apierrors.NewInternalServerError("invalid otp type")
 	}
 
-	// intentionally keeping this before the test OTP, so that the behavior
-	// of regular and test OTPs is similar
-	if sentAt != nil && !sentAt.Add(config.Sms.MaxFrequency).Before(time.Now()) {
-		return "", apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOverSMSSendRateLimit, generateFrequencyLimitErrorMessage(sentAt, config.Sms.MaxFrequency))
+	// Check per-phone-number rate limiting for OTP sends
+	if a.limiterOpts.OtpSendLimiter != nil {
+		if !a.limiterOpts.OtpSendLimiter.CanSend(phone) {
+			nextAllowed := a.limiterOpts.OtpSendLimiter.GetNextAllowedTime(phone)
+			waitTime := time.Until(nextAllowed)
+			if waitTime > 0 {
+				return "", apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOTPSendIntervalRateLimit, fmt.Sprintf("Please wait %v before requesting another OTP", waitTime.Round(time.Second)))
+			} else {
+				return "", apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOTPSendDailyRateLimit, "Daily OTP send limit reached for this phone number")
+			}
+		}
 	}
+
+	// Legacy rate limiting check (intentionally keeping this before the test OTP)
+	// if sentAt != nil && !sentAt.Add(config.Sms.MaxFrequency).Before(time.Now()) {
+	// 	return "", apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOverSMSSendRateLimit, generateFrequencyLimitErrorMessage(sentAt, config.Sms.MaxFrequency))
+	// }
 
 	now := time.Now()
 
@@ -155,6 +168,17 @@ func (a *API) sendPhoneConfirmation(r *http.Request, tx *storage.Connection, use
 	if ottErr != nil {
 		return messageID, apierrors.NewInternalServerError("error creating one time token").WithInternalError(ottErr)
 	}
+
+	// Record successful OTP send for per-phone-number rate limiting
+	if a.limiterOpts.OtpSendLimiter != nil {
+		a.limiterOpts.OtpSendLimiter.RecordSend(phone)
+	}
+
+	// Reset failed verification attempts for this phone number since OTP was resent successfully
+	if a.limiterOpts.OtpVerifyFailLimiter != nil {
+		a.limiterOpts.OtpVerifyFailLimiter.Reset(phone)
+	}
+
 	return messageID, nil
 }
 

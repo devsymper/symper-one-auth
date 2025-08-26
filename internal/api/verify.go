@@ -606,6 +606,50 @@ func (a *API) emailChangeVerify(r *http.Request, conn *storage.Connection, param
 	return user, nil
 }
 
+// validateOtpWithDetailedErrors checks OTP validity and returns specific error for the failure type
+func (a *API) validateOtpWithDetailedErrors(tokenHash, expectedToken string, sentAt *time.Time, otpExp uint, identifier string) error {
+	if expectedToken == "" || sentAt == nil {
+		if err := a.recordOtpVerifyFailure(identifier); err != nil {
+			return err
+		}
+		return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "Token has expired or is invalid").WithInternalMessage("token not found")
+	}
+
+	if isOtpExpired(sentAt, otpExp) {
+		if err := a.recordOtpVerifyFailure(identifier); err != nil {
+			return err
+		}
+		return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "OTP has expired").WithInternalMessage("otp has expired")
+	}
+
+	if !((tokenHash == expectedToken) || ("pkce_"+tokenHash == expectedToken)) {
+		if err := a.recordOtpVerifyFailure(identifier); err != nil {
+			return err
+		}
+		return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPCodeMismatch, "Invalid OTP code").WithInternalMessage("otp code mismatch")
+	}
+
+	return nil // Valid OTP
+}
+
+// recordOtpVerifyFailure records a failed OTP verification attempt for rate limiting
+// This should be called when an OTP verification fails to track the failure
+func (a *API) recordOtpVerifyFailure(identifier string) error {
+	// Use per-identifier rate limiting if available, otherwise fall back to global
+	if a.limiterOpts.OtpVerifyFailLimiter != nil && identifier != "" {
+		if !a.limiterOpts.OtpVerifyFailLimiter.CanAttempt(identifier) {
+			return apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOverRequestRateLimit, "Too many failed OTP verification attempts for this phone number. Please try again later.")
+		}
+		a.limiterOpts.OtpVerifyFailLimiter.RecordFailure(identifier)
+	} else if a.limiterOpts.OtpVerifyFailed != nil {
+		// Fallback to global rate limiting
+		if !a.limiterOpts.OtpVerifyFailed.Allow() {
+			return apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOverRequestRateLimit, "Too many failed OTP verification attempts. Please try again later.")
+		}
+	}
+	return nil
+}
+
 func (a *API) verifyTokenHash(conn *storage.Connection, params *VerifyParams) (*models.User, error) {
 	config := a.config
 
@@ -699,22 +743,39 @@ func (a *API) verifyUserAndToken(conn *storage.Connection, params *VerifyParams,
 	switch params.Type {
 	case mail.EmailOTPVerification:
 		// if the type is emailOTPVerification, we'll check both the confirmation_token and recovery_token columns
-		if isOtpValid(tokenHash, user.ConfirmationToken, user.ConfirmationSentAt, config.Mailer.OtpExp) {
+		identifier := params.Email
+		if err := a.validateOtpWithDetailedErrors(tokenHash, user.ConfirmationToken, user.ConfirmationSentAt, config.Mailer.OtpExp, identifier); err == nil {
 			isValid = true
 			params.Type = mail.SignupVerification
-		} else if isOtpValid(tokenHash, user.RecoveryToken, user.RecoverySentAt, config.Mailer.OtpExp) {
+		} else if err := a.validateOtpWithDetailedErrors(tokenHash, user.RecoveryToken, user.RecoverySentAt, config.Mailer.OtpExp, identifier); err == nil {
 			isValid = true
 			params.Type = mail.MagicLinkVerification
 		} else {
-			isValid = false
+			// Return the error from the second validation attempt (recovery token)
+			return nil, err
 		}
 	case mail.SignupVerification, mail.InviteVerification:
-		isValid = isOtpValid(tokenHash, user.ConfirmationToken, user.ConfirmationSentAt, config.Mailer.OtpExp)
+		identifier := params.Email
+		if err := a.validateOtpWithDetailedErrors(tokenHash, user.ConfirmationToken, user.ConfirmationSentAt, config.Mailer.OtpExp, identifier); err != nil {
+			return nil, err
+		}
+		isValid = true
 	case mail.RecoveryVerification, mail.MagicLinkVerification:
-		isValid = isOtpValid(tokenHash, user.RecoveryToken, user.RecoverySentAt, config.Mailer.OtpExp)
+		identifier := params.Email
+		if err := a.validateOtpWithDetailedErrors(tokenHash, user.RecoveryToken, user.RecoverySentAt, config.Mailer.OtpExp, identifier); err != nil {
+			return nil, err
+		}
+		isValid = true
 	case mail.EmailChangeVerification:
-		isValid = isOtpValid(tokenHash, user.EmailChangeTokenCurrent, user.EmailChangeSentAt, config.Mailer.OtpExp) ||
-			isOtpValid(tokenHash, user.EmailChangeTokenNew, user.EmailChangeSentAt, config.Mailer.OtpExp)
+		identifier := params.Email
+		if err := a.validateOtpWithDetailedErrors(tokenHash, user.EmailChangeTokenCurrent, user.EmailChangeSentAt, config.Mailer.OtpExp, identifier); err == nil {
+			isValid = true
+		} else if err := a.validateOtpWithDetailedErrors(tokenHash, user.EmailChangeTokenNew, user.EmailChangeSentAt, config.Mailer.OtpExp, identifier); err == nil {
+			isValid = true
+		} else {
+			// Return the error from the second validation attempt
+			return nil, err
+		}
 	case phoneChangeVerification, smsVerification:
 		if testOTP, ok := config.Sms.GetTestOTP(params.Phone, time.Now()); ok {
 			if params.Token == testOTP {
@@ -733,14 +794,57 @@ func (a *API) verifyUserAndToken(conn *storage.Connection, params *VerifyParams,
 
 		if !config.Hook.SendSMS.Enabled && config.Sms.IsTwilioVerifyProvider() {
 			if err := smsProvider.(*sms_provider.TwilioVerifyProvider).VerifyOTP(phone, params.Token); err != nil {
+				// Record the failed verification attempt for rate limiting
+				if rateLimitErr := a.recordOtpVerifyFailure(phone); rateLimitErr != nil {
+					return nil, rateLimitErr
+				}
 				return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "Token has expired or is invalid").WithInternalError(err)
 			}
 			return user, nil
 		}
-		isValid = isOtpValid(tokenHash, expectedToken, sentAt, config.Sms.OtpExp)
+		// Check OTP validity with detailed error reporting
+		if expectedToken == "" || sentAt == nil {
+			isValid = false
+		} else if isOtpExpired(sentAt, config.Sms.OtpExp) {
+			// OTP has expired
+			identifier := ""
+			if params.Phone != "" {
+				identifier = params.Phone
+			} else if params.Email != "" {
+				identifier = params.Email
+			}
+			if err := a.recordOtpVerifyFailure(identifier); err != nil {
+				return nil, err
+			}
+			return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "OTP has expired").WithInternalMessage("otp has expired")
+		} else if !((tokenHash == expectedToken) || ("pkce_"+tokenHash == expectedToken)) {
+			// OTP code mismatch
+			identifier := ""
+			if params.Phone != "" {
+				identifier = params.Phone
+			} else if params.Email != "" {
+				identifier = params.Email
+			}
+			if err := a.recordOtpVerifyFailure(identifier); err != nil {
+				return nil, err
+			}
+			return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPCodeMismatch, "Invalid OTP code").WithInternalMessage("otp code mismatch")
+		} else {
+			isValid = true
+		}
 	}
 
 	if !isValid {
+		// Fallback case - should not reach here with the detailed checks above
+		identifier := ""
+		if params.Phone != "" {
+			identifier = params.Phone
+		} else if params.Email != "" {
+			identifier = params.Email
+		}
+		if err := a.recordOtpVerifyFailure(identifier); err != nil {
+			return nil, err
+		}
 		return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "Token has expired or is invalid").WithInternalMessage("token has expired or is invalid")
 	}
 	return user, nil

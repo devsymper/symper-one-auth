@@ -286,6 +286,10 @@ type GlobalConfiguration struct {
 	RateLimitWeb3                       float64 `split_words:"true" default:"30"`
 	RateLimitOAuthDynamicClientRegister float64 `split_words:"true" default:"10"`
 
+	RateLimitOtpVerifyFailed Rate          `split_words:"true" default:"5"`
+	RateLimitOtpSendInterval time.Duration `split_words:"true" default:"3s"`
+	RateLimitOtpSendDaily    int           `split_words:"true" default:"5"`
+
 	SiteURL         string   `json:"site_url" split_words:"true" required:"true"`
 	URIAllowList    []string `json:"uri_allow_list" split_words:"true"`
 	URIAllowListMap map[string]glob.Glob

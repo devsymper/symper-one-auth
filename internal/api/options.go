@@ -14,8 +14,13 @@ type Option interface {
 }
 
 type LimiterOptions struct {
-	Email ratelimit.Limiter
-	Phone ratelimit.Limiter
+	Email           ratelimit.Limiter
+	Phone           ratelimit.Limiter
+	OtpVerifyFailed ratelimit.Limiter
+
+	// Per-identifier rate limiters for OTP operations
+	OtpSendLimiter       *ratelimit.OTPSendLimiter
+	OtpVerifyFailLimiter *ratelimit.OTPVerifyFailureLimiter
 
 	Signups             *limiter.Limiter
 	AnonymousSignIns    *limiter.Limiter
@@ -41,6 +46,11 @@ func NewLimiterOptions(gc *conf.GlobalConfiguration) *LimiterOptions {
 
 	o.Email = ratelimit.New(gc.RateLimitEmailSent)
 	o.Phone = ratelimit.New(gc.RateLimitSmsSent)
+	o.OtpVerifyFailed = ratelimit.New(gc.RateLimitOtpVerifyFailed)
+
+	// Initialize per-identifier rate limiters
+	o.OtpSendLimiter = ratelimit.NewOTPSendLimiter(gc.RateLimitOtpSendInterval, gc.RateLimitOtpSendDaily)
+	o.OtpVerifyFailLimiter = ratelimit.NewOTPVerifyFailureLimiter(int(gc.RateLimitOtpVerifyFailed.Events), gc.RateLimitOtpVerifyFailed.OverTime)
 
 	o.AnonymousSignIns = tollbooth.NewLimiter(gc.RateLimitAnonymousUsers/(60*60),
 		&limiter.ExpirableOptions{
