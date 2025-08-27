@@ -764,11 +764,13 @@ func (a *API) verifyPhoneFactor(w http.ResponseWriter, r *http.Request, params *
 		}
 		if err := smsProvider.VerifyOTP(factor.Phone.String(), params.Code); err != nil {
 			// Record the failed verification attempt for rate limiting
-			if rateLimitErr := a.recordOtpVerifyFailure(factor.Phone.String()); rateLimitErr != nil {
+			remaining, rateLimitErr := a.recordOtpVerifyFailure(factor.Phone.String())
+			if rateLimitErr != nil {
 				return rateLimitErr
 			}
 			// For Twilio Verify, we can't distinguish between expiry and mismatch, so use generic message
-			return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "Token has expired or is invalid").WithInternalError(err)
+			message := fmt.Sprintf("Token has expired or is invalid. %d verification attempts remaining", remaining)
+			return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, message).WithInternalError(err)
 		}
 		valid = true
 	} else {
@@ -806,7 +808,8 @@ func (a *API) verifyPhoneFactor(w http.ResponseWriter, r *http.Request, params *
 	}
 	if !valid {
 		// Record the failed verification attempt for rate limiting
-		if rateLimitErr := a.recordOtpVerifyFailure(factor.Phone.String()); rateLimitErr != nil {
+		remaining, rateLimitErr := a.recordOtpVerifyFailure(factor.Phone.String())
+		if rateLimitErr != nil {
 			return rateLimitErr
 		}
 
@@ -819,7 +822,8 @@ func (a *API) verifyPhoneFactor(w http.ResponseWriter, r *http.Request, params *
 				return err
 			}
 		}
-		return apierrors.NewUnprocessableEntityError(apierrors.ErrorCodeOTPCodeMismatch, "Invalid MFA Phone code entered")
+		message := fmt.Sprintf("Invalid MFA Phone code entered. %d verification attempts remaining", remaining)
+		return apierrors.NewUnprocessableEntityError(apierrors.ErrorCodeOTPCodeMismatch, message)
 	}
 
 	var token *AccessTokenResponse

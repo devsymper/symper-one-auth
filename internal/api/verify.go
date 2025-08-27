@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -609,24 +610,30 @@ func (a *API) emailChangeVerify(r *http.Request, conn *storage.Connection, param
 // validateOtpWithDetailedErrors checks OTP validity and returns specific error for the failure type
 func (a *API) validateOtpWithDetailedErrors(tokenHash, expectedToken string, sentAt *time.Time, otpExp uint, identifier string) error {
 	if expectedToken == "" || sentAt == nil {
-		if err := a.recordOtpVerifyFailure(identifier); err != nil {
+		remaining, err := a.recordOtpVerifyFailure(identifier)
+		if err != nil {
 			return err
 		}
-		return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "Token has expired or is invalid").WithInternalMessage("token not found")
+		message := fmt.Sprintf("Token has expired or is invalid. %d verification attempts remaining", remaining)
+		return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, message).WithInternalMessage("token not found")
 	}
 
 	if isOtpExpired(sentAt, otpExp) {
-		if err := a.recordOtpVerifyFailure(identifier); err != nil {
+		remaining, err := a.recordOtpVerifyFailure(identifier)
+		if err != nil {
 			return err
 		}
-		return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "OTP has expired").WithInternalMessage("otp has expired")
+		message := fmt.Sprintf("OTP has expired. %d verification attempts remaining", remaining)
+		return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, message).WithInternalMessage("otp has expired")
 	}
 
 	if !((tokenHash == expectedToken) || ("pkce_"+tokenHash == expectedToken)) {
-		if err := a.recordOtpVerifyFailure(identifier); err != nil {
+		remaining, err := a.recordOtpVerifyFailure(identifier)
+		if err != nil {
 			return err
 		}
-		return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPCodeMismatch, "Invalid OTP code").WithInternalMessage("otp code mismatch")
+		message := fmt.Sprintf("Invalid OTP code. %d verification attempts remaining", remaining)
+		return apierrors.NewForbiddenError(apierrors.ErrorCodeOTPCodeMismatch, message).WithInternalMessage("otp code mismatch")
 	}
 
 	return nil // Valid OTP
@@ -634,20 +641,24 @@ func (a *API) validateOtpWithDetailedErrors(tokenHash, expectedToken string, sen
 
 // recordOtpVerifyFailure records a failed OTP verification attempt for rate limiting
 // This should be called when an OTP verification fails to track the failure
-func (a *API) recordOtpVerifyFailure(identifier string) error {
+// Returns the remaining verification attempts count
+func (a *API) recordOtpVerifyFailure(identifier string) (int, error) {
 	// Use per-identifier rate limiting if available, otherwise fall back to global
 	if a.limiterOpts.OtpVerifyFailLimiter != nil && identifier != "" {
 		if !a.limiterOpts.OtpVerifyFailLimiter.CanAttempt(identifier) {
-			return apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOverRequestRateLimit, "Too many failed OTP verification attempts for this phone number. Please try again later.")
+			remaining := a.limiterOpts.OtpVerifyFailLimiter.GetRemainingAttempts(identifier)
+			return remaining, apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOverRequestRateLimit, "Too many failed OTP verification attempts for this phone number. Please try again later.")
 		}
 		a.limiterOpts.OtpVerifyFailLimiter.RecordFailure(identifier)
+		remaining := a.limiterOpts.OtpVerifyFailLimiter.GetRemainingAttempts(identifier)
+		return remaining, nil
 	} else if a.limiterOpts.OtpVerifyFailed != nil {
 		// Fallback to global rate limiting
 		if !a.limiterOpts.OtpVerifyFailed.Allow() {
-			return apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOverRequestRateLimit, "Too many failed OTP verification attempts. Please try again later.")
+			return 0, apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOverRequestRateLimit, "Too many failed OTP verification attempts. Please try again later.")
 		}
 	}
-	return nil
+	return 0, nil
 }
 
 func (a *API) verifyTokenHash(conn *storage.Connection, params *VerifyParams) (*models.User, error) {
@@ -790,40 +801,42 @@ func (a *API) verifyUserAndToken(conn *storage.Connection, params *VerifyParams,
 		if !config.Hook.SendSMS.Enabled && config.Sms.IsTwilioVerifyProvider() {
 			if err := smsProvider.(*sms_provider.TwilioVerifyProvider).VerifyOTP(phone, params.Token); err != nil {
 				// Record the failed verification attempt for rate limiting
-				if rateLimitErr := a.recordOtpVerifyFailure(phone); rateLimitErr != nil {
+				remaining, rateLimitErr := a.recordOtpVerifyFailure(phone)
+				if rateLimitErr != nil {
 					return nil, rateLimitErr
 				}
-				return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "Token has expired or is invalid").WithInternalError(err)
+				message := fmt.Sprintf("Token has expired or is invalid. %d verification attempts remaining", remaining)
+				return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, message).WithInternalError(err)
 			}
 			return user, nil
 		}
+
+		identifier := ""
+		if params.Phone != "" {
+			identifier = params.Phone
+		} else if params.Email != "" {
+			identifier = params.Email
+		}
+
 		// Check OTP validity with detailed error reporting
 		if expectedToken == "" || sentAt == nil {
 			isValid = false
 		} else if !((tokenHash == expectedToken) || ("pkce_"+tokenHash == expectedToken)) {
 			// OTP code mismatch
-			identifier := ""
-			if params.Phone != "" {
-				identifier = params.Phone
-			} else if params.Email != "" {
-				identifier = params.Email
-			}
-			if err := a.recordOtpVerifyFailure(identifier); err != nil {
+			remaining, err := a.recordOtpVerifyFailure(identifier)
+			if err != nil {
 				return nil, err
 			}
-			return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPCodeMismatch, "Invalid OTP code").WithInternalMessage("otp code mismatch")
+			message := fmt.Sprintf("Invalid OTP code. %d verification attempts remaining", remaining)
+			return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPCodeMismatch, message).WithInternalMessage("otp code mismatch")
 		} else if isOtpExpired(sentAt, config.Sms.OtpExp) {
 			// OTP has expired
-			identifier := ""
-			if params.Phone != "" {
-				identifier = params.Phone
-			} else if params.Email != "" {
-				identifier = params.Email
-			}
-			if err := a.recordOtpVerifyFailure(identifier); err != nil {
+			remaining, err := a.recordOtpVerifyFailure(identifier)
+			if err != nil {
 				return nil, err
 			}
-			return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "OTP has expired").WithInternalMessage("otp has expired")
+			message := fmt.Sprintf("OTP has expired. %d verification attempts remaining", remaining)
+			return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, message).WithInternalMessage("otp has expired")
 		} else {
 			isValid = true
 		}
@@ -837,10 +850,12 @@ func (a *API) verifyUserAndToken(conn *storage.Connection, params *VerifyParams,
 		} else if params.Email != "" {
 			identifier = params.Email
 		}
-		if err := a.recordOtpVerifyFailure(identifier); err != nil {
+		remaining, err := a.recordOtpVerifyFailure(identifier)
+		if err != nil {
 			return nil, err
 		}
-		return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "Token has expired or is invalid").WithInternalMessage("token has expired or is invalid")
+		message := fmt.Sprintf("Token has expired or is invalid. %d verification attempts remaining", remaining)
+		return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, message).WithInternalMessage("token has expired or is invalid")
 	}
 	return user, nil
 }

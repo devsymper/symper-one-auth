@@ -264,6 +264,38 @@ func (o *OTPVerifyFailureLimiter) Reset(phoneNumber string) {
 	}
 }
 
+// GetRemainingAttempts returns the number of remaining verification attempts for the given phone number
+func (o *OTPVerifyFailureLimiter) GetRemainingAttempts(phoneNumber string) int {
+	return o.GetRemainingAttemptsAt(phoneNumber, time.Now())
+}
+
+// GetRemainingAttemptsAt returns the number of remaining verification attempts at the specified time
+func (o *OTPVerifyFailureLimiter) GetRemainingAttemptsAt(phoneNumber string, at time.Time) int {
+	o.mu.RLock()
+	tracker, exists := o.trackers[phoneNumber]
+	o.mu.RUnlock()
+
+	if !exists {
+		return o.limit // Full attempts available if no record exists
+	}
+
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+
+	// Check if we need to reset the time window
+	if at.Sub(tracker.lastReset) >= o.interval {
+		// Would reset the counter for the new time window
+		return o.limit
+	}
+
+	// Return remaining attempts in current window
+	remaining := o.limit - tracker.count
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
 // Cleanup removes old trackers that haven't been used recently
 func (o *OTPVerifyFailureLimiter) Cleanup() {
 	o.mu.Lock()
