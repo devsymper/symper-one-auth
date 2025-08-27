@@ -35,7 +35,7 @@ func NewTingtingProvider(config conf.TingtingProviderConfiguration) (SmsProvider
 		return nil, err
 	}
 
-	apiPath := config.BaseURL + "/api/sms"
+	apiPath := config.ApiBaseURL + "/api/sms"
 	return &TingtingProvider{
 		Config:  &config,
 		APIPath: apiPath,
@@ -56,7 +56,7 @@ func (t *TingtingProvider) SendSms(phone string, message string) (string, error)
 	payload := TingtingRequest{
 		To:      phone,
 		Content: message,
-		Sender:  t.Config.Sender,
+		Sender:  t.Config.ApiSender,
 	}
 
 	jsonPayload, err := json.Marshal(payload)

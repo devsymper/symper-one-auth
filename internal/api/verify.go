@@ -777,11 +777,6 @@ func (a *API) verifyUserAndToken(conn *storage.Connection, params *VerifyParams,
 			return nil, err
 		}
 	case phoneChangeVerification, smsVerification:
-		if testOTP, ok := config.Sms.GetTestOTP(params.Phone, time.Now()); ok {
-			if params.Token == testOTP {
-				return user, nil
-			}
-		}
 
 		phone := params.Phone
 		sentAt := user.ConfirmationSentAt
@@ -805,18 +800,6 @@ func (a *API) verifyUserAndToken(conn *storage.Connection, params *VerifyParams,
 		// Check OTP validity with detailed error reporting
 		if expectedToken == "" || sentAt == nil {
 			isValid = false
-		} else if isOtpExpired(sentAt, config.Sms.OtpExp) {
-			// OTP has expired
-			identifier := ""
-			if params.Phone != "" {
-				identifier = params.Phone
-			} else if params.Email != "" {
-				identifier = params.Email
-			}
-			if err := a.recordOtpVerifyFailure(identifier); err != nil {
-				return nil, err
-			}
-			return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "OTP has expired").WithInternalMessage("otp has expired")
 		} else if !((tokenHash == expectedToken) || ("pkce_"+tokenHash == expectedToken)) {
 			// OTP code mismatch
 			identifier := ""
@@ -829,6 +812,18 @@ func (a *API) verifyUserAndToken(conn *storage.Connection, params *VerifyParams,
 				return nil, err
 			}
 			return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPCodeMismatch, "Invalid OTP code").WithInternalMessage("otp code mismatch")
+		} else if isOtpExpired(sentAt, config.Sms.OtpExp) {
+			// OTP has expired
+			identifier := ""
+			if params.Phone != "" {
+				identifier = params.Phone
+			} else if params.Email != "" {
+				identifier = params.Email
+			}
+			if err := a.recordOtpVerifyFailure(identifier); err != nil {
+				return nil, err
+			}
+			return nil, apierrors.NewForbiddenError(apierrors.ErrorCodeOTPExpired, "OTP has expired").WithInternalMessage("otp has expired")
 		} else {
 			isValid = true
 		}

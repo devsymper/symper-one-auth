@@ -10,8 +10,8 @@ import (
 
 func TestNewTingtingProvider(t *testing.T) {
 	config := conf.TingtingProviderConfiguration{
-		ApiKey: "test-api-key",
-		Sender: "TING TING",
+		ApiKey:    "test-api-key",
+		ApiSender: "TING TING",
 	}
 
 	provider, err := NewTingtingProvider(config)
@@ -22,13 +22,13 @@ func TestNewTingtingProvider(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "https://v1.tingting.im/api/sms", tingtingProvider.APIPath)
 	assert.Equal(t, "test-api-key", tingtingProvider.Config.ApiKey)
-	assert.Equal(t, "TING TING", tingtingProvider.Config.Sender)
+	assert.Equal(t, "TING TING", tingtingProvider.Config.ApiSender)
 }
 
 func TestTingtingProviderValidation(t *testing.T) {
 	// Test missing API key
 	config := conf.TingtingProviderConfiguration{
-		Sender: "TING TING",
+		ApiSender: "TING TING",
 	}
 	_, err := NewTingtingProvider(config)
 	assert.Error(t, err)
@@ -45,8 +45,8 @@ func TestTingtingProviderValidation(t *testing.T) {
 
 func TestTingtingProviderSendMessage(t *testing.T) {
 	config := conf.TingtingProviderConfiguration{
-		ApiKey: "test-api-key",
-		Sender: "TING TING",
+		ApiKey:    "test-api-key",
+		ApiSender: "TING TING",
 	}
 
 	provider, err := NewTingtingProvider(config)

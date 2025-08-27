@@ -570,9 +570,9 @@ type VonageProviderConfiguration struct {
 }
 
 type TingtingProviderConfiguration struct {
-	ApiKey  string `json:"api_key" split_words:"true"`
-	Sender  string `json:"sender" split_words:"true"`
-	BaseURL string `json:"base_url" split_words:"true"`
+	ApiKey     string `json:"api_key" split_words:"true"`
+	ApiSender  string `json:"api_sender" split_words:"true"`
+	ApiBaseURL string `json:"api_base_url" split_words:"true"`
 }
 
 type CaptchaConfiguration struct {
@@ -1268,7 +1268,7 @@ func (t *TingtingProviderConfiguration) Validate() error {
 	if t.ApiKey == "" {
 		return errors.New("missing Tingting API key")
 	}
-	if t.Sender == "" {
+	if t.ApiSender == "" {
 		return errors.New("missing Tingting sender")
 	}
 	return nil
