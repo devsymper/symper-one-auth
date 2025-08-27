@@ -77,7 +77,9 @@ func (a *API) sendPhoneConfirmation(r *http.Request, tx *storage.Connection, use
 			if waitTime > 0 {
 				return "", apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOTPSendIntervalRateLimit, fmt.Sprintf("Please wait %v before requesting another OTP", waitTime.Round(time.Second)))
 			} else {
-				return "", apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOTPSendDailyRateLimit, "Daily OTP send limit reached for this phone number")
+				nextDailyReset := a.limiterOpts.OtpSendLimiter.GetNextDailyResetTime(phone)
+				nextResetStr := nextDailyReset.Format("2006-01-02 15:04:05")
+				return "", apierrors.NewTooManyRequestsError(apierrors.ErrorCodeOTPSendDailyRateLimit, fmt.Sprintf("Daily OTP send limit reached for this phone number. You can resend at %s", nextResetStr))
 			}
 		}
 	}

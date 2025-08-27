@@ -17,11 +17,12 @@ type OTPSendLimiter struct {
 
 // OTPSendTracker tracks OTP send attempts for a specific phone number
 type OTPSendTracker struct {
-	mu          sync.Mutex
-	lastSend    time.Time
-	dailyReset  time.Time
-	dailyCount  int
-	lastAttempt time.Time
+	mu                  sync.Mutex
+	lastSend            time.Time
+	dailyReset          time.Time
+	dailyCount          int
+	lastAttempt         time.Time
+	dailyLimitReachedAt *time.Time // When daily limit was first reached
 }
 
 // NewOTPSendLimiter creates a new OTP send rate limiter
@@ -62,6 +63,7 @@ func (o *OTPSendLimiter) CanSendAt(phoneNumber string, at time.Time) bool {
 	if at.Truncate(24 * time.Hour).After(tracker.dailyReset) {
 		tracker.dailyReset = at.Truncate(24 * time.Hour)
 		tracker.dailyCount = 0
+		tracker.dailyLimitReachedAt = nil // Reset the limit reached time
 	}
 
 	// Check daily limit first
@@ -105,11 +107,17 @@ func (o *OTPSendLimiter) RecordSendAt(phoneNumber string, at time.Time) {
 	if at.Truncate(24 * time.Hour).After(tracker.dailyReset) {
 		tracker.dailyReset = at.Truncate(24 * time.Hour)
 		tracker.dailyCount = 0
+		tracker.dailyLimitReachedAt = nil // Reset the limit reached time
 	}
 
 	// Record the send
 	tracker.lastSend = at
 	tracker.dailyCount++
+
+	// Track when daily limit is first reached
+	if tracker.dailyCount >= o.dailyLimit && tracker.dailyLimitReachedAt == nil {
+		tracker.dailyLimitReachedAt = &at
+	}
 }
 
 // GetNextAllowedTime returns when the next OTP can be sent for the given phone number
@@ -135,6 +143,29 @@ func (o *OTPSendLimiter) GetNextAllowedTime(phoneNumber string) time.Time {
 	}
 
 	return nextAllowed
+}
+
+// GetNextDailyResetTime returns when the daily limit will reset for the given phone number
+func (o *OTPSendLimiter) GetNextDailyResetTime(phoneNumber string) time.Time {
+	o.mu.RLock()
+	tracker, exists := o.trackers[phoneNumber]
+	o.mu.RUnlock()
+
+	if !exists {
+		return time.Now() // No limit if no record exists
+	}
+
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+
+	// If daily limit hasn't been reached yet, return current time
+	if tracker.dailyLimitReachedAt == nil {
+		return time.Now()
+	}
+
+	// Daily reset happens exactly 24 hours after the limit was first reached
+	nextDailyReset := tracker.dailyLimitReachedAt.Add(24 * time.Hour).Add(1 * time.Minute)
+	return nextDailyReset
 }
 
 // Cleanup removes old trackers that haven't been used recently
