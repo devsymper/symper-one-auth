@@ -254,6 +254,24 @@ func (a *API) RefreshTokenGrant(ctx context.Context, w http.ResponseWriter, r *h
 				return apierrors.NewInternalServerError("failed to update session information").WithInternalError(terr)
 			}
 
+			// Get tenant information for response
+			var tenantInfo *TenantInfo
+			if defaultTenant, err := models.GetDefaultTenantForUser(tx, user.ID); err == nil {
+				tenantRole := ""
+				// Get user's role in this tenant
+				if member, err := models.FindTenantMemberByUserAndTenant(tx, user.ID, defaultTenant.ID); err == nil {
+					tenantRole = member.Role
+				} else if defaultTenant.OwnerID == user.ID {
+					tenantRole = "owner"
+				}
+
+				tenantInfo = &TenantInfo{
+					ID:   defaultTenant.ID.String(),
+					Name: defaultTenant.Name,
+					Role: tenantRole,
+				}
+			}
+
 			newTokenResponse = &AccessTokenResponse{
 				Token:        tokenString,
 				TokenType:    "bearer",
@@ -261,6 +279,7 @@ func (a *API) RefreshTokenGrant(ctx context.Context, w http.ResponseWriter, r *h
 				ExpiresAt:    expiresAt,
 				RefreshToken: issuedToken.Token,
 				User:         user,
+				Tenant:       tenantInfo,
 			}
 
 			return nil

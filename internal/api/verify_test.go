@@ -1279,3 +1279,57 @@ func (ts *VerifyTestSuite) TestVerifyValidateParams() {
 		})
 	}
 }
+
+func (ts *VerifyTestSuite) TestVerifyPostWithTenantInfo() {
+	// Create a user with a tenant
+	u, err := models.NewUser("12345678", "test@example.com", "password", ts.Config.JWT.Aud, nil)
+	require.NoError(ts.T(), err)
+	require.NoError(ts.T(), ts.API.db.Create(u))
+
+	// Create a default tenant for the user
+	tenant := models.NewTenant("Test Organization", "Test tenant for user", u.ID)
+	require.NoError(ts.T(), ts.API.db.Create(tenant))
+
+	// Create tenant member relationship
+	member := models.NewTenantMember(tenant.ID, u.ID, "owner")
+	require.NoError(ts.T(), ts.API.db.Create(member))
+
+	// Generate a confirmation token
+	otp := crypto.GenerateOtp(6)
+	u.ConfirmationToken = crypto.GenerateTokenHash(u.GetEmail(), otp)
+	require.NoError(ts.T(), ts.API.db.Update(u))
+
+	// Create the verify request
+	params := map[string]interface{}{
+		"type":  mail.SignupVerification,
+		"token": otp,
+		"email": u.GetEmail(),
+	}
+	body, err := json.Marshal(params)
+	require.NoError(ts.T(), err)
+
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/verify", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	err = ts.API.Verify(w, req)
+	require.NoError(ts.T(), err)
+
+	require.Equal(ts.T(), http.StatusOK, w.Code)
+
+	// Parse the response
+	var response AccessTokenResponse
+	require.NoError(ts.T(), json.Unmarshal(w.Body.Bytes(), &response))
+
+	// Verify the response contains tenant information
+	require.NotNil(ts.T(), response.Tenant, "Tenant information should be included in verify response")
+	assert.Equal(ts.T(), tenant.ID.String(), response.Tenant.ID)
+	assert.Equal(ts.T(), tenant.Name, response.Tenant.Name)
+	assert.Equal(ts.T(), "owner", response.Tenant.Role)
+
+	// Verify the token is present
+	assert.NotEmpty(ts.T(), response.Token)
+	assert.Equal(ts.T(), "bearer", response.TokenType)
+	assert.NotEmpty(ts.T(), response.RefreshToken)
+	assert.NotNil(ts.T(), response.User)
+}

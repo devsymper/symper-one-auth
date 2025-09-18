@@ -38,6 +38,13 @@ type AccessTokenClaims struct {
 	// ClientId                      string                 `json:"client_id,omitempty"`
 }
 
+// TenantInfo represents tenant information in API responses
+type TenantInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Role string `json:"role"`
+}
+
 // AccessTokenResponse represents an OAuth2 success response
 type AccessTokenResponse struct {
 	Token                string             `json:"access_token"`
@@ -46,6 +53,7 @@ type AccessTokenResponse struct {
 	ExpiresAt            int64              `json:"expires_at"`
 	RefreshToken         string             `json:"refresh_token"`
 	User                 *models.User       `json:"user"`
+	Tenant               *TenantInfo        `json:"tenant,omitempty"`
 	ProviderAccessToken  string             `json:"provider_token,omitempty"`
 	ProviderRefreshToken string             `json:"provider_refresh_token,omitempty"`
 	WeakPassword         *WeakPasswordError `json:"weak_password,omitempty"`
@@ -59,6 +67,12 @@ func (r *AccessTokenResponse) AsRedirectURL(redirectURL string, extraParams url.
 	extraParams.Set("expires_in", strconv.Itoa(r.ExpiresIn))
 	extraParams.Set("expires_at", strconv.FormatInt(r.ExpiresAt, 10))
 	extraParams.Set("refresh_token", r.RefreshToken)
+
+	// Include tenant information in redirect URL if available
+	if r.Tenant != nil {
+		extraParams.Set("tenant_id", r.Tenant.ID)
+		extraParams.Set("tenant_role", r.Tenant.Role)
+	}
 
 	return redirectURL + "#" + extraParams.Encode()
 }
@@ -446,6 +460,24 @@ func (a *API) issueRefreshToken(r *http.Request, conn *storage.Connection, user 
 		return nil, err
 	}
 
+	// Get tenant information for response
+	var tenantInfo *TenantInfo
+	if defaultTenant, err := models.GetDefaultTenantForUser(conn, user.ID); err == nil {
+		tenantRole := ""
+		// Get user's role in this tenant
+		if member, err := models.FindTenantMemberByUserAndTenant(conn, user.ID, defaultTenant.ID); err == nil {
+			tenantRole = member.Role
+		} else if defaultTenant.OwnerID == user.ID {
+			tenantRole = "owner"
+		}
+
+		tenantInfo = &TenantInfo{
+			ID:   defaultTenant.ID.String(),
+			Name: defaultTenant.Name,
+			Role: tenantRole,
+		}
+	}
+
 	return &AccessTokenResponse{
 		Token:        tokenString,
 		TokenType:    "bearer",
@@ -453,6 +485,7 @@ func (a *API) issueRefreshToken(r *http.Request, conn *storage.Connection, user 
 		ExpiresAt:    expiresAt,
 		RefreshToken: refreshToken.Token,
 		User:         user,
+		Tenant:       tenantInfo,
 	}, nil
 }
 
