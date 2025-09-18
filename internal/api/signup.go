@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/fatih/structs"
@@ -383,6 +385,12 @@ func (a *API) signupNewUser(conn *storage.Connection, user *models.User) (*model
 		if terr = user.SetRole(tx, config.JWT.DefaultGroupName); terr != nil {
 			return apierrors.NewInternalServerError("Database error updating user").WithInternalError(terr)
 		}
+
+		// Create a default tenant for the user when they sign up
+		if terr = a.createDefaultTenantForUser(tx, user); terr != nil {
+			return apierrors.NewInternalServerError("Database error creating tenant").WithInternalError(terr)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -397,4 +405,33 @@ func (a *API) signupNewUser(conn *storage.Connection, user *models.User) (*model
 	}
 
 	return user, nil
+}
+
+// createDefaultTenantForUser creates a default tenant for a newly registered user
+func (a *API) createDefaultTenantForUser(tx *storage.Connection, user *models.User) error {
+	// Generate a default tenant name based on user information
+	tenantName := "Personal"
+	if user.GetEmail() != "" {
+		// Extract name from email if possible
+		emailParts := strings.Split(user.GetEmail(), "@")
+		if len(emailParts) > 0 && emailParts[0] != "" {
+			tenantName = fmt.Sprintf("%s's Organization", strings.Title(emailParts[0]))
+		}
+	} else if user.GetPhone() != "" {
+		tenantName = "Personal Organization"
+	}
+
+	// Create the tenant
+	tenant := models.NewTenant(tenantName, "Default tenant for user", user.ID)
+	if err := tx.Create(tenant); err != nil {
+		return err
+	}
+
+	// Create the tenant member relationship (owner role)
+	member := models.NewTenantMember(tenant.ID, user.ID, "owner")
+	if err := tx.Create(member); err != nil {
+		return err
+	}
+
+	return nil
 }

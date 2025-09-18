@@ -35,6 +35,9 @@ type SortField struct {
 func TruncateAll(conn *storage.Connection) error {
 	return conn.Transaction(func(tx *storage.Connection) error {
 		tables := []string{
+			(&pop.Model{Value: TenantInvitation{}}).TableName(),
+			(&pop.Model{Value: TenantMember{}}).TableName(),
+			(&pop.Model{Value: Tenant{}}).TableName(),
 			(&pop.Model{Value: User{}}).TableName(),
 			(&pop.Model{Value: Identity{}}).TableName(),
 			(&pop.Model{Value: RefreshToken{}}).TableName(),

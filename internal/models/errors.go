@@ -29,6 +29,12 @@ func IsNotFoundError(err error) bool {
 		return true
 	case OAuthServerClientNotFoundError, *OAuthServerClientNotFoundError:
 		return true
+	case TenantNotFoundError, *TenantNotFoundError:
+		return true
+	case TenantMemberNotFoundError, *TenantMemberNotFoundError:
+		return true
+	case TenantInvitationNotFoundError, *TenantInvitationNotFoundError:
+		return true
 	}
 	return false
 }
@@ -124,4 +130,25 @@ type UserEmailUniqueConflictError struct{}
 
 func (e UserEmailUniqueConflictError) Error() string {
 	return "User email unique constraint violated"
+}
+
+// TenantNotFoundError represents when a tenant is not found.
+type TenantNotFoundError struct{}
+
+func (e TenantNotFoundError) Error() string {
+	return "Tenant not found"
+}
+
+// TenantMemberNotFoundError represents when a tenant member is not found.
+type TenantMemberNotFoundError struct{}
+
+func (e TenantMemberNotFoundError) Error() string {
+	return "Tenant member not found"
+}
+
+// TenantInvitationNotFoundError represents when a tenant invitation is not found.
+type TenantInvitationNotFoundError struct{}
+
+func (e TenantInvitationNotFoundError) Error() string {
+	return "Tenant invitation not found"
 }

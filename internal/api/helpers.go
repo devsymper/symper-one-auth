@@ -62,6 +62,8 @@ type RequestParams interface {
 		SignupParams |
 		SingleSignOnParams |
 		SmsParams |
+		TenantInviteParams |
+		TenantInviteAcceptParams |
 		Web3GrantParams |
 		UserUpdateParams |
 		VerifyFactorParams |

@@ -32,6 +32,8 @@ type AccessTokenClaims struct {
 	AuthenticationMethodReference []models.AMREntry      `json:"amr,omitempty"`
 	SessionId                     string                 `json:"session_id,omitempty"`
 	IsAnonymous                   bool                   `json:"is_anonymous"`
+	TenantID                      string                 `json:"tenant_id,omitempty"`
+	TenantRole                    string                 `json:"tenant_role,omitempty"`
 	// TODO(cemalkilic) : client_id claim will be added later
 	// ClientId                      string                 `json:"client_id,omitempty"`
 }
@@ -346,6 +348,18 @@ func (a *API) generateAccessToken(r *http.Request, tx *storage.Connection, user 
 	issuedAt := time.Now().UTC()
 	expiresAt := issuedAt.Add(time.Second * time.Duration(config.JWT.Exp))
 
+	// Get default tenant for user
+	var tenantID, tenantRole string
+	if defaultTenant, err := models.GetDefaultTenantForUser(tx, user.ID); err == nil {
+		tenantID = defaultTenant.ID.String()
+		// Get user's role in this tenant
+		if member, err := models.FindTenantMemberByUserAndTenant(tx, user.ID, defaultTenant.ID); err == nil {
+			tenantRole = member.Role
+		} else if defaultTenant.OwnerID == user.ID {
+			tenantRole = "owner"
+		}
+	}
+
 	claims := &v0hooks.AccessTokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID.String(),
@@ -363,6 +377,8 @@ func (a *API) generateAccessToken(r *http.Request, tx *storage.Connection, user 
 		AuthenticatorAssuranceLevel:   aal.String(),
 		AuthenticationMethodReference: amr,
 		IsAnonymous:                   user.IsAnonymous,
+		TenantID:                      tenantID,
+		TenantRole:                    tenantRole,
 	}
 
 	var gotrueClaims jwt.Claims = claims
@@ -585,6 +601,12 @@ const MinimumViableTokenSchema = `{
       }
     },
     "session_id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "tenant_role": {
       "type": "string"
     }
   },

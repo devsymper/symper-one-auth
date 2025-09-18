@@ -228,6 +228,12 @@ func NewAPIWithVersion(globalConfig *conf.GlobalConfiguration, db *storage.Conne
 			})
 		})
 
+		r.With(api.requireAuthentication).Route("/tenants", func(r *router) {
+			r.Get("/", api.GetUserTenants)
+			r.Post("/invite", api.InviteToTenant)
+			r.Post("/accept-invitation", api.AcceptTenantInvitation)
+		})
+
 		r.With(api.requireAuthentication).Route("/factors", func(r *router) {
 			r.Use(api.requireNotAnonymous)
 			r.Post("/", api.EnrollFactor)
