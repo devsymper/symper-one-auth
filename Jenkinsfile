@@ -217,7 +217,7 @@ pipeline {
                 stage('deploy to k8s') {
 					steps {
 						withCredentials([
-                            usernamePassword(credentialsId: 'dev_database', passwordVariable: 'POSTGRES_PASS', usernameVariable: 'POSTGRES_USER'),
+                            usernamePassword(credentialsId: 'symper_one_auth_db', passwordVariable: 'POSTGRES_PASS', usernameVariable: 'POSTGRES_USER'),
                             usernamePassword(credentialsId: 'clickhouse_data_io', passwordVariable: 'CLICKHOUSE_PASS', usernameVariable: 'CLICKHOUSE_USER'),
                             usernamePassword(credentialsId: 'ssh_prod_vps', passwordVariable: 'USER_PASS', usernameVariable: 'USER_NAME')
                         ]) {
